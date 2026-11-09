@@ -1,0 +1,36 @@
+name: Validate Sydney deployment infrastructure
+
+on:
+  pull_request:
+    paths:
+      - 'environments/dev-kc-deploy/**'
+      - '.github/workflows/dev-kc-deploy.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'environments/dev-kc-deploy/**'
+      - '.github/workflows/dev-kc-deploy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Terraform validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: environments/dev-kc-deploy
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.14.8'
+          terraform_wrapper: false
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+      - run: terraform test -no-color

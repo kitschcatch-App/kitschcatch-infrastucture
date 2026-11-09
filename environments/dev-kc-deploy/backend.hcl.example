@@ -1,0 +1,5 @@
+bucket       = "kitschcatch-terraform-state-983367475494"
+key          = "dev-kc-deploy/terraform.tfstate"
+region       = "ap-southeast-2"
+encrypt      = true
+use_lockfile = true
