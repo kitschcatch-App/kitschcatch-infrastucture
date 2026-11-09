@@ -18,7 +18,7 @@ EC2에 백엔드 저장소의 `deploy/sydney/` 배포 프로그램과 systemd �
 
 S3 버킷·버전 관리·공개 접근 차단·암호화·수명 주기, SSM 명령 문서, 기존 EC2 역할의 인라인 정책 두 개를 적용했다. 기존 개발 인스턴스·네트워크·DB 변경은 0개다.
 
-AWS 조직 SCP가 `iam:CreateOpenIDConnectProvider`를 명시적으로 차단해 GitHub 역할은 생성하지 못했다. 조직에서 공급자 사용을 허용하기 전에는 아래 옵션으로 적용한 기반 리소스만 관리한다.
+AWS 조직 SCP가 `iam:CreateOpenIDConnectProvider`를 명시적으로 차단해 GitHub 역할은 생성하지 못했다. IAM 정책 평가에서도 EC2 역할의 `ssm:UpdateInstanceInformation`이 조직 정책에 의해 `explicitDeny`였다. 에이전트가 관리 노드로 등록되지 않아 Run Command가 `InvalidInstanceId`를 반환한다. 두 조직 제한이 해결될 때까지 아래 옵션으로 적용한 기반 리소스를 관리한다.
 
 ```sh
 terraform plan -var enable_github_oidc=false
