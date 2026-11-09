@@ -28,7 +28,19 @@ variable "instance_role" {
 }
 variable "enable_github_oidc" {
   type    = bool
-  default = true
+  default = false
+}
+variable "create_github_oidc_provider" {
+  type    = bool
+  default = false
+}
+variable "github_oidc_provider_arn" {
+  type    = string
+  default = null
+  validation {
+    condition     = var.github_oidc_provider_arn == null || var.github_oidc_provider_arn == "arn:aws:iam::${var.account_id}:oidc-provider/token.actions.githubusercontent.com"
+    error_message = "Use the GitHub Actions OIDC provider ARN in this deployment account."
+  }
 }
 variable "github_subject" {
   type    = string
@@ -39,6 +51,7 @@ locals {
   artifact_prefix = "backend"
   oidc_host       = "token.actions.githubusercontent.com"
   instance_arn    = "arn:aws:ec2:ap-southeast-2:${var.account_id}:instance/${var.instance_id}"
+  github_provider = var.github_oidc_provider_arn != null ? var.github_oidc_provider_arn : try(aws_iam_openid_connect_provider.github[0].arn, null)
 }
 
 resource "aws_s3_bucket" "releases" {
@@ -98,17 +111,26 @@ resource "aws_iam_role_policy" "ssm" {
   role = var.instance_role
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "ssm:UpdateInstanceInformation",
-        "ssmmessages:CreateControlChannel",
-        "ssmmessages:CreateDataChannel",
-        "ssmmessages:OpenControlChannel",
-        "ssmmessages:OpenDataChannel"
-      ]
-      Resource = "*"
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:UpdateInstanceInformation"]
+        Resource = local.instance_arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = { "aws:RequestedRegion" = "ap-southeast-2" }
+        }
+      }
+    ]
   })
 }
 
@@ -155,20 +177,36 @@ resource "aws_ssm_document" "deploy" {
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
-  count          = var.enable_github_oidc ? 1 : 0
+  count          = var.create_github_oidc_provider ? 1 : 0
   url            = "https://${local.oidc_host}"
   client_id_list = ["sts.amazonaws.com"]
+
+  lifecycle {
+    prevent_destroy = true
+    precondition {
+      condition     = var.github_oidc_provider_arn == null
+      error_message = "Choose either an existing GitHub OIDC provider or a new one."
+    }
+  }
 }
 
 resource "aws_iam_role" "github" {
   count                = var.enable_github_oidc ? 1 : 0
   name                 = "kitschcatch-dev-kc-github-deploy"
   max_session_duration = 3600
+
+  lifecycle {
+    precondition {
+      condition     = var.github_oidc_provider_arn != null || var.create_github_oidc_provider
+      error_message = "Supply an existing provider ARN or explicitly enable provider creation."
+    }
+  }
+
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.github[0].arn }
+      Principal = { Federated = local.github_provider }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
@@ -201,6 +239,9 @@ resource "aws_iam_role_policy" "deploy" {
         Effect   = "Allow"
         Action   = ["ssm:GetCommandInvocation", "elasticloadbalancing:DescribeTargetHealth"]
         Resource = "*"
+        Condition = {
+          StringEquals = { "aws:RequestedRegion" = "ap-southeast-2" }
+        }
       }
     ]
   })
